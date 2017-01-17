@@ -112,10 +112,17 @@ class AndroidCameraManagerImpl implements CameraManager {
     private CameraHandler mCameraHandler;
     private android.hardware.Camera mCamera;
 
+    private boolean mUseHal3;
+
     AndroidCameraManagerImpl() {
         HandlerThread ht = new HandlerThread("Camera Handler Thread");
         ht.start();
         mCameraHandler = new CameraHandler(ht.getLooper());
+    }
+
+    @Override
+    public void setHal3(boolean hal3) {
+        mUseHal3 = hal3;
     }
 
     private class CameraHandler extends Handler {
@@ -226,16 +233,30 @@ class AndroidCameraManagerImpl implements CameraManager {
                         if (info.facing == CameraInfo.CAMERA_FACING_BACK && backCameraOpenLegacy ||
                                 info.facing == CameraInfo.CAMERA_FACING_FRONT && frontCameraOpenLegacy) {
                             try {
+                            if (mUseHal3) {
+                                mCamera = Camera.open(msg.arg1);
+                            } else {
                                 Method openMethod = Class.forName("android.hardware.Camera").getMethod(
                                         "openLegacy", int.class, int.class);
                                 mCamera = (android.hardware.Camera) openMethod.invoke(
-                                        null, cameraId, CAMERA_HAL_API_VERSION_1_0);
-                            } catch (Exception e) {
-                                /* Retry with open if openLegacy doesn't exist/fails */
-                                Log.v(TAG, "openLegacy failed due to " + e.getMessage()
-                                        + ", using open instead");
-                                mCamera = android.hardware.Camera.open(cameraId);
+                                        null, msg.arg1, CAMERA_HAL_API_VERSION_1_0);
+                        } catch (Exception e) {
+                            /* Retry with openLegacy if open fails */
+                            Log.i(TAG, "open failed due to " + e.getMessage()
+                                    + ", using" + (mUseHal3 ? "openLegacy" : "open") + "instead");
+                            if (mUseHal3) {
+                                mCamera = android.hardware.Camera.open(msg.arg1);
+                            } else {
+                                try {
+                                    Method openMethod = Class.forName("android.hardware.Camera").getMethod(
+                                            "openLegacy", int.class, int.class);
+                                    mCamera = (android.hardware.Camera) openMethod.invoke(
+                                            null, msg.arg1, CAMERA_HAL_API_VERSION_1_0);
+                                } catch (Exception e1) {
+                                    Log.e(TAG, "openLegacy failed due to " + e1.getMessage());
+                                }
                             }
+                        }
                         } else {
                             mCamera = android.hardware.Camera.open(cameraId);
                         }
